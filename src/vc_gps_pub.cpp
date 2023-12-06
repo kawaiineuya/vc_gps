@@ -1,8 +1,10 @@
+#define _LARGEFILE64_SOURCE
+
 #include <ros/ros.h>
 #include <sensor_msgs/NavSatFix.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <termios.h>
 #include <string>
 #include <iostream>
@@ -10,6 +12,10 @@
 #include <sstream>
 #include <typeinfo>
 #include <math.h>
+
+#include "oroca_ros_tutorials/msgTutorial.h" 
+
+
 
 using namespace std;
 
@@ -52,9 +58,7 @@ int main(int argc, char **argv){
   ros::Publisher pub2 = nh2.advertise<sensor_msgs::NavSatFix>("vc_gps_hu", 100);
   sensor_msgs::NavSatFix msg1;
   sensor_msgs::NavSatFix msg2;
-  // ros::NodeHandle nh;
-  // ros::Publisher ros_tutorial_pub = nh.advertise<oroca_ros_tutorials::msgTutorial>("ros_tutorial_msg", 100);
-  ros::Rate loop_rate(5);
+  ros::Rate loop_rate(4);
   
  printf("UART\n");
  int i = 1; 
@@ -96,11 +100,11 @@ int main(int argc, char **argv){
 
  int uart_sys = -1;
  int flag = 0;
- uart_sys = open("/dev/ttyVC", O_RDWR|O_NOCTTY|O_NDELAY);
+ uart_sys = open("/dev/ttyVC", O_RDWR|O_NOCTTY|O_LARGEFILE|O_TRUNC);
  if(uart_sys == -1)
   printf("ERR unable to open UART\n");
 
- struct termios options;
+  struct termios options;
  tcgetattr(uart_sys, &options);
  options.c_cflag = B115200|CS8|CLOCAL|CREAD;
  options.c_iflag = IGNPAR;
@@ -108,7 +112,6 @@ int main(int argc, char **argv){
  options.c_lflag = 0;
  tcflush(uart_sys,TCIFLUSH);
  tcsetattr(uart_sys,TCSANOW, &options);
-
  unsigned char tx_buf[20];
  unsigned char *p_tx_buf;
 
@@ -121,40 +124,41 @@ int main(int argc, char **argv){
  //p_tx_buf[1] = '1';
 
   int count;
+  unsigned char rx_buf[255] = "/0";
  while(ros::ok()){
-  // if(uart_sys != -1){
-  //  int count = write(uart_sys,&tx_buf[i%2],sizeof(char));
-  // }
-      // oroca_ros_tutorials::msgTutorial msg;     
-      // msg.data = count;                 
-      // ROS_INFO("send msg = %d", count); 
-      // ros_tutorial_pub.publish(msg);      
-      // loop_rate.sleep();                  
-      // count++;                            
-  
+  printf("%d\n", uart_sys);
   if(uart_sys != -1){
-  
-   unsigned char rx_buf[255] = "/0";
    rx_length = read(uart_sys,(void*)rx_buf,32);
    //printf("%i byte : %s\n",rx_length,rx_buf);
-   if(rx_length == 32)
+  }
+   if(rx_length == 32 || rx_buf[32] == 0x00)
    {
-    //int temp = read(uart_sys,(void*)rx_buf,64);
-    //printf("%d", temp);
-    //int temp = -1;
     // while(rx_buf[0] != 0x52 && rx_buf[0] != 0x48){
-    //   //unsigned char rx_buf[255] = "/0";
     //   rx_length = read(uart_sys,(void*)rx_buf,32);
     //   printf("%i byte : %s\n",rx_length,rx_buf);
     //   printf("%x\n", rx_buf[0]);
+    //   for (int  i = 0; i < 32; i++)
+    //       {
+    //         in1[32-i] = rx_buf[i];
+    //         printf("%d\n", in1[32-i]);
+    //       }
     // }
     if(rx_length < 0){
       r_time = ros::Time::now().sec;
       //printf("%d\n", r_time);
       printf("error\n");
+
     }
-    else if(rx_length == 0)
-      printf("no data\n");
+    else if(rx_buf[0] != 0x52 && rx_buf[0] != 0x48){
+    //ros::Rate loop_rate(2);
+    printf("no data\n");
+    for (int  i = 0; i < 32; i++)
+      {
+        in1[32-i] = rx_buf[i];
+        printf("%x\n", in1[32-i]);
+      }
+    continue;
+    }
     else{
       
       rx_buf[rx_length] = '\0';
@@ -183,6 +187,7 @@ int main(int argc, char **argv){
         in4[25-i] = rx_buf[i];
         //printf("%d\n", in4[25-i]);
       }
+
     
       std::stringstream time_data;
       std::string str_time_data;
@@ -209,16 +214,10 @@ int main(int argc, char **argv){
       if(in5[0] == 5){in5[1] = 2;}
 
       const double varH = rx_buf[28] / 10.0;
-      // printf("%d\n", rx_buf[60]);
-      // printf("%d\n", rx_buf[61]);
-      // printf("%.32f\n",varH);
-      // printf("%.32f\n",varV);
       str_to_hex2(in1, out1, " ");
       str_to_hex(in2, out2, " ");
       str_to_hex(in3, out3, " ");
       str_to_hex1(in4, out4, " ");
-      //cout<<"change before : " << in1 << endl;
-      //cout<<"change after : " << out1 << endl;
       
       long unsigned int num1;    
       long unsigned int num2; 
@@ -230,11 +229,10 @@ int main(int argc, char **argv){
       sscanf(out3, "%lx\n", &num3);
       sscanf(out4, "%lx\n", &num4);
       UTC_Time_data = UTC_Time_data | num1;
-        //cout << num7 << endl;
-        //cout << UTC_Time_data << endl;
 
       if(rx_buf[0] == 0x52)
       {
+
         caddy_latitude = *((double*)&num2);    
         caddy_Longitude = *((double*)&num3);
         caddy_Altitude = *((float*)&num4);
@@ -246,8 +244,7 @@ int main(int argc, char **argv){
         msg1.latitude = caddy_latitude;
         msg1.longitude = caddy_Longitude;
         msg1.altitude = caddy_Altitude;
-        msg1.status.status = 2;
-        // msg1.status.status = in5[1];
+        msg1.status.status = in5[1]; 
         msg1.status.service = in6[0];
         msg1.header.stamp = ros::Time::now();
         //msg1.header.stamp.sec = UTC_Time_data;
@@ -258,6 +255,7 @@ int main(int argc, char **argv){
         msg1.position_covariance_type = 
           sensor_msgs::NavSatFix::COVARIANCE_TYPE_DIAGONAL_KNOWN;
         pub1.publish(msg1);
+
       }
       else if(rx_buf[0] == 0x48)
       {
@@ -272,8 +270,7 @@ int main(int argc, char **argv){
         msg2.latitude = Hu_latitude;
         msg2.longitude = Hu_Longitude;
         msg2.altitude = Hu_Altitude;
-        msg2.status.status = 2;
-        // msg2.status.status = in5[1];
+        msg2.status.status = in5[1];
         msg2.status.service = in6[0];
         msg2.header.stamp = ros::Time::now();
         //msg2.header.stamp.sec = UTC_Time_data;
@@ -283,11 +280,11 @@ int main(int argc, char **argv){
         msg2.position_covariance_type = 
           sensor_msgs::NavSatFix::COVARIANCE_TYPE_DIAGONAL_KNOWN;
         pub2.publish(msg2);
+
         }
       }
 
     }
-  }
     loop_rate.sleep();
   }
   return 0;
